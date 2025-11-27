@@ -194,26 +194,43 @@ def gamepad_all_2():
         LT_val = max(0, min(1000, LT))  # 左扳机 0-1000
         RT_val = max(0, min(1000, RT))  # 右扳机 0-1000
 
-        # 3. 按钮打成 bit（button_status）
-        BTN_A  = 0
-        BTN_B  = 1
-        BTN_X  = 2
-        BTN_Y  = 3
-        BTN_LB = 4     
-        BTN_RB = 5     
-        BTN_ML = 8     
-        BTN_MR = 9     
+        # 1. 手柄按键 ID 定义 (这是 Pygame/手柄驱动读取到的物理按键编号，保持不变)
+        BTN_A_ID  = 0
+        BTN_B_ID  = 1
+        BTN_X_ID  = 2
+        BTN_Y_ID  = 3
+        BTN_LB_ID = 4     
+        BTN_RB_ID = 5     
+        BTN_ML_ID = 8     
+        BTN_MR_ID = 9     
 
+        # 2. 生成 button_status
+        
         button_status = 0
-        # 顺序：| LB | RB | X | A | B | Y | ML | MR |
-        if js.get_button(BTN_LB): button_status |= (1 << 7)
-        if js.get_button(BTN_RB): button_status |= (1 << 6)
-        if js.get_button(BTN_X):  button_status |= (1 << 5)
-        if js.get_button(BTN_A):  button_status |= (1 << 4)
-        if js.get_button(BTN_B):  button_status |= (1 << 3)
-        if js.get_button(BTN_Y):  button_status |= (1 << 2)
-        if js.get_button(BTN_ML): button_status |= (1 << 1)
-        if js.get_button(BTN_MR): button_status |= (1 << 0)
+        
+        # Bit 0: LB
+        if js.get_button(BTN_LB_ID): button_status |= (1 << 0)
+        
+        # Bit 1: RB
+        if js.get_button(BTN_RB_ID): button_status |= (1 << 1)
+        
+        # Bit 2: X
+        if js.get_button(BTN_X_ID):  button_status |= (1 << 2)
+        
+        # Bit 3: A
+        if js.get_button(BTN_A_ID):  button_status |= (1 << 3)
+        
+        # Bit 4: B
+        if js.get_button(BTN_B_ID):  button_status |= (1 << 4)
+        
+        # Bit 5: Y
+        if js.get_button(BTN_Y_ID):  button_status |= (1 << 5)
+        
+        # Bit 6: ML (Menu Left)
+        if js.get_button(BTN_ML_ID): button_status |= (1 << 6)
+        
+        # Bit 7: MR (Menu Right)
+        if js.get_button(BTN_MR_ID): button_status |= (1 << 7)
 
         # 4. PC_Msg 结构体（13 字节，小端）
         try:
