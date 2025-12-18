@@ -16,6 +16,7 @@ README:
 
 SERIAL_PORT = "COM6"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
 BAUD_RATE   = 2000000
+OUTPUT_MODE = 1          # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
 
 # ==============================================================================
 # CRC16 Implementation (移植自 CRC.cpp)
@@ -66,7 +67,14 @@ def gamepad_all_2():
     js = pygame.joystick.Joystick(0)
     js.init()
     print(f"已连接手柄: {js.get_name()}")
-    print("输出：LA,LM, RA,RM, LT,RT, bottom（Angle×10，Mag/LT/RT×1000）")
+    
+    if OUTPUT_MODE == 1:
+        print("当前模式: 1 (正常输出)")
+        print("输出：LA,LM, RA,RM, LT,RT, bottom（Angle×10，Mag/LT/RT×1000）")
+    else:
+        print("当前模式: 0 (调试映射)")
+        print("请按下手柄按钮，屏幕将显示其原始ID")
+
     print("提示：按手柄 BACK 键 或 键盘 ESC 退出")
 
     # 尝试打开串口（打开失败就只做 print）
@@ -112,11 +120,16 @@ def gamepad_all_2():
                     running = False
                     break
 
+                if OUTPUT_MODE == 0:
+                    print(f"【DEBUG模式】检测到原始按钮ID: {event.button}")
+
                 if event.button in button_map:
                     bottom = button_map[event.button]  
-                    print(f"逻辑按钮 {bottom} 按下（物理 {event.button}）")  #监控/debug用
+                    if OUTPUT_MODE == 1:
+                        print(f"逻辑按钮 {bottom} 按下（物理 {event.button}）")  #监控/debug用
                 else:
-                    print(f"其他按钮 {event.button} 按下")  #监控/debug用
+                    if OUTPUT_MODE == 1:
+                        print(f"其他按钮 {event.button} 按下")  #监控/debug用
 
                 if event.type == pygame.JOYBUTTONUP:
                     if event.button in button_map:
@@ -271,14 +284,15 @@ def gamepad_all_2():
             frame = b""
 
         # 6. debug：打印逻辑值 + 真实发出去的 HEX
-        print(
-            f"[LOGIC] LA={LA}, LM={LM}, RA={RA}, RM={RM}, "
-            f"LT={LT_val}, RT={RT_val}, BTN={button_status:08b}"
-        )
-        if frame:
-            # 应该打印 20 个字节
-            print("[UART HEX]", " ".join(f"{b:02X}" for b in frame),
-                  f"(len={len(frame)})")
+        if OUTPUT_MODE == 1:
+            print(
+                f"[LOGIC] LA={LA}, LM={LM}, RA={RA}, RM={RM}, "
+                f"LT={LT_val}, RT={RT_val}, BTN={button_status:08b}"
+            )
+            if frame:
+                # 应该打印 20 个字节
+                print("[UART HEX]", " ".join(f"{b:02X}" for b in frame),
+                      f"(len={len(frame)})")
 
         # 7. 发送串口数据
         if ser is not None and frame:
