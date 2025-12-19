@@ -14,9 +14,9 @@ README:
     - 运行前请修改 SERIAL_PORT 为实际串口号
 """
 
-SERIAL_PORT = "COM6"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
+SERIAL_PORT = "COM10"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
 BAUD_RATE   = 2000000
-OUTPUT_MODE = 1          # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
+OUTPUT_MODE = 0         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
 
 # ==============================================================================
 # CRC16 Implementation (移植自 CRC.cpp)
@@ -214,8 +214,8 @@ def gamepad_all_2():
         BTN_Y_ID  = 3
         BTN_LB_ID = 4     
         BTN_RB_ID = 5     
-        BTN_ML_ID = 8     
-        BTN_MR_ID = 9     
+        BTN_ML_ID = 6  
+        BTN_MR_ID = 7     
 
         # 2. 生成 button_status
         
