@@ -438,13 +438,6 @@ def gamepad_all_2():
 
         pygame.display.flip()
         
-            try:
-                ser.write(frame)
-            except serial.SerialException as e:
-                print("⚠ 写串口失败，连接已断开", e)
-                ser.close()
-                ser = None
-
         clock.tick(30)
 
     # ====== 收尾 ====== 
