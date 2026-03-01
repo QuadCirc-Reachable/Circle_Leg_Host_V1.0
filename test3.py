@@ -352,6 +352,13 @@ def gamepad_all_2():
                     pass
 
         if ser is not None and frame:
+            try:
+                ser.write(frame)
+            except serial.SerialException as e:
+                print("⚠ 写串口失败，连接已断开", e)
+                ser.close()
+                ser = None
+
         # ====== Visualization ======
         screen.fill((30, 30, 30)) # Dark Grey Background
 
