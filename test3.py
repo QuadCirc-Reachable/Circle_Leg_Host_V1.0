@@ -3,6 +3,7 @@ import math
 import sys
 import serial   
 import struct 
+import platform 
 
 """
 README:
@@ -14,8 +15,17 @@ README:
     - 运行前请修改 SERIAL_PORT 为实际串口号
 """
 
-SERIAL_PORT = "COM10"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
-#/dev/ttyACM0
+# Detect OS
+CURRENT_OS = platform.system()  # 'Windows', 'Linux', 'Darwin' (macOS)
+print(f"Detected OS: {CURRENT_OS}")
+
+if CURRENT_OS == 'Windows':
+    SERIAL_PORT = "COM10"
+elif CURRENT_OS == 'Linux':
+    SERIAL_PORT = "/dev/ttyUSB0" # Default for Linux, user might need to change
+else:
+    SERIAL_PORT = "/dev/tty.usbmodem"
+    
 BAUD_RATE   = 2000000
 OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
 
@@ -120,15 +130,58 @@ def gamepad_all_2():
 
     bottom = -1
     
-    button_map = {
-        0: 0,   # A
-        1: 1,   # B
-        2: 2,   # X
-        3: 3,   # Y
-        6: 4,   # 自定义：物理 6 → 逻辑 4
-        7: 5,   # 自定义：物理 7 → 逻辑 5
-        11: 6,  # 自定义：物理 11 → 逻辑 6
-    }
+    # --- Button Mapping based on OS ---
+    # Default Windows Mapping (Xbox Controller)
+    # A=0, B=1, X=2, Y=3, LB=4, RB=5, Back=6, Start=7, ...
+    
+    # Default Linux Mapping (Xbox Controller via xpad)
+    # A=0, B=1, X=2, Y=3, LB=4, RB=5, Back=6, Start=7 ... (Often similar but can vary)
+    # Sometimes on Linux: A=0, B=1, X=2, Y=3, LB=4, RB=5, Back=6, Start=7, Guide=8, LS=9, RS=10
+
+    # Let's define dictionary for mappings
+    # Using specific values provided in code initially for Windows
+    
+    map_config = {}
+    
+    if CURRENT_OS == 'Windows':
+        # Used in button_map logic (Logical ID mapping)
+        map_config['logic_map'] = {
+            0: 0,   # A
+            1: 1,   # B
+            2: 2,   # X
+            3: 3,   # Y
+            6: 4,   # Back (Physical 6 -> Logical 4)
+            7: 5,   # Start (Physical 7 -> Logical 5)
+            11: 6,  # ??? (Physical 11 -> Logical 6)
+        }
+        # Used for bitmask generation
+        map_config['btn_ids'] = {
+            'A': 0, 'B': 1, 'X': 2, 'Y': 3,
+            'LB': 4, 'RB': 5, 
+            'ML': 6, 'MR': 7,
+            'EXIT': 8 # Back button usually to exit? Original code used 8. Wait, standard xbox is 6 for back.
+        }
+    else:
+        # Linux Mapping (Common Xbox Controller)
+        # You can use check_joystick.py to verify these!
+        map_config['logic_map'] = {
+            0: 0,   # A
+            1: 1,   # B
+            2: 2,   # X
+            3: 3,   # Y
+            6: 4,   # Back/Select
+            7: 5,   # Start
+            # 11: 6,  # ??? Linux might not have 11 buttons easily mapped exactly same.
+        }
+        map_config['btn_ids'] = {
+            'A': 0, 'B': 1, 'X': 2, 'Y': 3,
+            'LB': 4, 'RB': 5, 
+            'ML': 6, 'MR': 7,
+            'EXIT': 6 # Back button on Linux is often 6
+        }
+
+    button_map = map_config['logic_map']
+    btn_ids = map_config['btn_ids']
 
     deadzone = 0.15
     running = True
@@ -156,8 +209,8 @@ def gamepad_all_2():
                     break
 
             if event.type == pygame.JOYBUTTONDOWN:
-                # BACK 键（一般是 6 或 8，视手柄而定，这里保留原代码的 8）退出
-                if event.button == 8:
+                # 使用 mapping 中的 EXIT 键退出
+                if event.button == btn_ids.get('EXIT', 8): # Default to 8 if not found
                     print("收到退出指令（Back 键），结束程序")
                     running = False
                     break
@@ -250,14 +303,15 @@ def gamepad_all_2():
         RT_val = max(0, min(1000, RT))  # 右扳机 0-1000
 
         # 1. 手柄按键 ID 定义 (这是 Pygame/手柄驱动读取到的物理按键编号，保持不变)
-        BTN_A_ID  = 0
-        BTN_B_ID  = 1
-        BTN_X_ID  = 2
-        BTN_Y_ID  = 3
-        BTN_LB_ID = 4     
-        BTN_RB_ID = 5     
-        BTN_ML_ID = 6  
-        BTN_MR_ID = 7     
+        # 从配置中加载 ID
+        BTN_A_ID  = btn_ids.get('A', 0)
+        BTN_B_ID  = btn_ids.get('B', 1)
+        BTN_X_ID  = btn_ids.get('X', 2)
+        BTN_Y_ID  = btn_ids.get('Y', 3)
+        BTN_LB_ID = btn_ids.get('LB', 4)    
+        BTN_RB_ID = btn_ids.get('RB', 5)     
+        BTN_ML_ID = btn_ids.get('ML', 6)  
+        BTN_MR_ID = btn_ids.get('MR', 7)     
 
         # 2. 生成 button_status
         
