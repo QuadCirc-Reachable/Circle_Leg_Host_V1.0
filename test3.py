@@ -57,15 +57,33 @@ def append_crc16_checksum(data):
 # Main Logic
 # ==============================================================================
 
+def draw_text(surface, text, x, y, size=20, color=(255, 255, 255)):
+    font = pygame.font.SysFont("Arial", size)
+    img = font.render(text, True, color)
+    surface.blit(img, (x, y))
+
 def gamepad_all_2():
     pygame.init()
     pygame.joystick.init()
+    pygame.font.init()
+
+    # --- Window Setup ---
+    WIDTH, HEIGHT = 800, 500
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Robot Controller Host")
 
     # --- 等待手柄连接 ---
     print("正在扫描手柄... (请连接手柄)")
     while pygame.joystick.get_count() == 0:
         pygame.event.pump()
         pygame.time.wait(500)  # 每500ms检查一次
+        
+        # 绘制扫描界面
+        screen.fill((30, 30, 30))
+        draw_text(screen, "Scanning for Gamepad...", WIDTH//2 - 100, HEIGHT//2, 30)
+        draw_text(screen, "Please connect a controller", WIDTH//2 - 100, HEIGHT//2 + 40, 20)
+        pygame.display.flip()
+
         # 允许用户在等待时退出
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -334,6 +352,85 @@ def gamepad_all_2():
                     pass
 
         if ser is not None and frame:
+        # ====== Visualization ======
+        screen.fill((30, 30, 30)) # Dark Grey Background
+
+        # 1. Connection Status
+        status_color = (0, 255, 0) if ser is not None else (255, 0, 0)
+        status_text = f"Serial: {SERIAL_PORT} [{'CONNECTED' if ser else 'DISCONNECTED'}]"
+        draw_text(screen, status_text, 20, 20, 24, status_color)
+        draw_text(screen, f"Gamepad: {js.get_name()}", 20, 50, 20)
+        draw_text(screen, f"Protocol: [HEAD] [CRC] [PAYLOAD] [CRC]", 20, HEIGHT - 30, 16, (150, 150, 150))
+
+        # 2. Joysticks
+        # Left Stick
+        pygame.draw.circle(screen, (50, 50, 50), (150, 250), 60, 2)
+        ls_x = 150 + int(x * 60)
+        ls_y = 250 + int(y * 60)
+        pygame.draw.circle(screen, (0, 150, 255), (ls_x, ls_y), 10)
+        draw_text(screen, f"L-Stick: {LA/10:.1f}deg, {LM/100:.2f}", 90, 330, 18)
+
+        # Right Stick
+        pygame.draw.circle(screen, (50, 50, 50), (650, 250), 60, 2)
+        rs_x = 650 + int(rx * 60)
+        rs_y = 250 + int(ry * 60)
+        pygame.draw.circle(screen, (0, 150, 255), (rs_x, rs_y), 10)
+        draw_text(screen, f"R-Stick: {RA/10:.1f}deg, {RM/100:.2f}", 590, 330, 18)
+
+        # 3. Triggers (Bars)
+        # Left Trigger
+        pygame.draw.rect(screen, (50, 50, 50), (100, 100, 30, 100), 2)
+        pygame.draw.rect(screen, (255, 100, 0), (102, 200 - int(lt_norm * 96), 26, int(lt_norm * 96)))
+        draw_text(screen, f"LT: {int(LT_val)}", 90, 80, 18)
+
+        # Right Trigger
+        pygame.draw.rect(screen, (50, 50, 50), (670, 100, 30, 100), 2)
+        pygame.draw.rect(screen, (255, 100, 0), (672, 200 - int(rt_norm * 96), 26, int(rt_norm * 96)))
+        draw_text(screen, f"RT: {int(RT_val)}", 660, 80, 18)
+
+        # 4. Buttons
+        center_x = 400
+        center_y = 250
+        
+        # A, B, X, Y
+        btn_positions = {
+            'Y': (center_x + 100, center_y - 40),
+            'B': (center_x + 140, center_y),
+            'A': (center_x + 100, center_y + 40),
+            'X': (center_x + 60, center_y)
+        }
+        
+        # Check logic bits from button_status
+        # BTN_A: bit 3, BTN_B: bit 4, BTN_X: bit 2, BTN_Y: bit 5
+        # BTN_LB: bit 0, BTN_RB: bit 1
+        # BTN_ML: bit 6, BTN_MR: bit 7
+        
+        is_pressed = lambda bit: (button_status & (1 << bit)) != 0
+        
+        cols = {True: (0, 255, 0), False: (80, 80, 80)}
+        
+        # Draw ABXY
+        for name, pos in btn_positions.items():
+            bit = {'A': 3, 'B': 4, 'X': 2, 'Y': 5}[name]
+            pygame.draw.circle(screen, cols[is_pressed(bit)], pos, 15)
+            draw_text(screen, name, pos[0]-5, pos[1]-10, 18, (0,0,0) if is_pressed(bit) else (200,200,200))
+
+        # Bumpers
+        pygame.draw.rect(screen, cols[is_pressed(0)], (100, 60, 60, 20)) # LB
+        draw_text(screen, "LB", 115, 60, 16, (0,0,0))
+        
+        pygame.draw.rect(screen, cols[is_pressed(1)], (640, 60, 60, 20)) # RB
+        draw_text(screen, "RB", 655, 60, 16, (0,0,0))
+
+        # Menu Buttons (Start/Select)
+        pygame.draw.circle(screen, cols[is_pressed(6)], (center_x - 40, center_y), 10) # ML (Select)
+        draw_text(screen, "ML", center_x - 38, center_y + 15, 14, (200,200,200))
+
+        pygame.draw.circle(screen, cols[is_pressed(7)], (center_x + 20, center_y), 10) # MR (Start)
+        draw_text(screen, "MR", center_x + 22, center_y + 15, 14, (200,200,200))
+
+        pygame.display.flip()
+        
             try:
                 ser.write(frame)
             except serial.SerialException as e:
