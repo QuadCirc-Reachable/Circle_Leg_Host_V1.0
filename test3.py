@@ -15,6 +15,7 @@ README:
 """
 
 SERIAL_PORT = "COM10"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
+#/dev/ttyACM0
 BAUD_RATE   = 2000000
 OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
 
