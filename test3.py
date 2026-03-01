@@ -16,7 +16,7 @@ README:
 
 SERIAL_PORT = "COM10"     # 开发板时改成实际串口号，比如"/dev/ttyUSB0"
 BAUD_RATE   = 2000000
-OUTPUT_MODE = 0         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
+OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
 
 # ==============================================================================
 # CRC16 Implementation (移植自 CRC.cpp)
@@ -60,13 +60,22 @@ def gamepad_all_2():
     pygame.init()
     pygame.joystick.init()
 
-    if pygame.joystick.get_count() == 0:
-        print("未检测到手柄")
-        return
+    # --- 等待手柄连接 ---
+    print("正在扫描手柄... (请连接手柄)")
+    while pygame.joystick.get_count() == 0:
+        pygame.event.pump()
+        pygame.time.wait(500)  # 每500ms检查一次
+        # 允许用户在等待时退出
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                sys.exit()
 
+    # 连接第一个手柄
     js = pygame.joystick.Joystick(0)
     js.init()
-    print(f"已连接手柄: {js.get_name()}")
+    print(f"✅ 已连接手柄: {js.get_name()}")
     
     if OUTPUT_MODE == 1:
         print("当前模式: 1 (正常输出)")
@@ -87,6 +96,9 @@ def gamepad_all_2():
 
     clock = pygame.time.Clock()
     
+    last_reconnect_time = 0
+    RECONNECT_INTERVAL = 2000  # 2秒重连尝试间隔
+
     bottom = -1
     
     button_map = {
@@ -105,13 +117,24 @@ def gamepad_all_2():
     while running:
         pygame.event.pump()
 
-        # ====== 处理事件：按钮 / 退出 ====== 
+        # ====== 处理事件：按钮 / 退出 / 手柄热插拔 ====== 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                sys.exit() # 直接退出
 
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+                sys.exit()
+
+            # 检测手柄断开 (Pygame 2.0+)
+            if event.type == pygame.JOYDEVICEREMOVED:
+                # 检查是否是当前使用的手柄断开了
+                # event.instance_id 是 Joystick 的 instance_id，需要对比
+                if event.instance_id == js.get_instance_id():
+                    print("⚠ 手柄已断开连接！正在返回重新扫描...")
+                    running = False # 退出当前循环，触发外层 main_menu 重新调用 gamepad_all_2
+                    break
 
             if event.type == pygame.JOYBUTTONDOWN:
                 # BACK 键（一般是 6 或 8，视手柄而定，这里保留原代码的 8）退出
@@ -295,11 +318,26 @@ def gamepad_all_2():
                       f"(len={len(frame)})")
 
         # 7. 发送串口数据
+        current_time = pygame.time.get_ticks()
+
+        # 如果串口断开，尝试重连
+        if ser is None:
+            if current_time - last_reconnect_time > RECONNECT_INTERVAL:
+                last_reconnect_time = current_time
+                try:
+                    print(f"正在尝试重连串口 {SERIAL_PORT} ...")
+                    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
+                    print(f"串口 {SERIAL_PORT} 重连成功！")
+                except serial.SerialException:
+                    # 静默失败，等待下次重试
+                    pass
+
         if ser is not None and frame:
             try:
                 ser.write(frame)
             except serial.SerialException as e:
-                print("⚠ 写串口失败，之后不再发送", e)
+                print("⚠ 写串口失败，连接已断开", e)
+                ser.close()
                 ser = None
 
         clock.tick(30)
@@ -307,13 +345,30 @@ def gamepad_all_2():
     # ====== 收尾 ====== 
     if ser is not None:
         ser.close()
-    pygame.quit()
-    print("程序已正常退出")
-    sys.exit()
+    
+    # 尝试安全退出 pygame (只是清理本次 session 资源)
+    try:
+        pygame.quit()
+    except:
+        pass
+
+    print("准备重启扫描手柄程序...")
+    return
 
 def main_menu():
     while True:
-        gamepad_all_2()
+        try:
+            gamepad_all_2()
+        except KeyboardInterrupt:
+            print("\n用户中断，退出程序")
+            sys.exit()
+        except Exception as e:
+            print(f"发生错误: {e}")
+            pass # 稍微等待避免过快循环
+        
+        # 简单等待
+        import time
+        time.sleep(1)
 
 if __name__ == "__main__":
     main_menu()
