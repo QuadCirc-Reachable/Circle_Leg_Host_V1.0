@@ -161,27 +161,29 @@ def gamepad_all_2():
             'ML': 6, 'MR': 7,
             'EXIT': 8 # Back button usually to exit? Original code used 8. Wait, standard xbox is 6 for back.
         }
+        map_config['axis_ids'] = {'LT': 4, 'RT': 5}
     else:
-        # Linux Mapping (Common Xbox Controller)
-        # You can use check_joystick.py to verify these!
+        # Linux Mapping (Custom checked)
+        # A: 0, B: 1, Y: 4, X: 3, RB: 7, LB: 6, ML: 10, MR: 11
         map_config['logic_map'] = {
             0: 0,   # A
             1: 1,   # B
-            2: 2,   # X
-            3: 3,   # Y
-            6: 4,   # Back/Select
-            7: 5,   # Start
-            # 11: 6,  # ??? Linux might not have 11 buttons easily mapped exactly same.
+            3: 2,   # X (Linux X is 3)
+            4: 3,   # Y (Linux Y is 4)
+            10: 4,  # ML (Select)
+            11: 5,  # MR (Start)
         }
         map_config['btn_ids'] = {
-            'A': 0, 'B': 1, 'X': 2, 'Y': 3,
-            'LB': 4, 'RB': 5, 
-            'ML': 6, 'MR': 7,
-            'EXIT': 6 # Back button on Linux is often 6
+            'A': 0, 'B': 1, 'X': 3, 'Y': 4,
+            'LB': 6, 'RB': 7, 
+            'ML': 10, 'MR': 11,
+            'EXIT': 10 # Use ML/Select (10) as Back/Exit if no dedicated button
         }
+        map_config['axis_ids'] = {'LT': 5, 'RT': 4}
 
     button_map = map_config['logic_map']
     btn_ids = map_config['btn_ids']
+    axis_ids = map_config['axis_ids']
 
     deadzone = 0.15
     running = True
@@ -281,8 +283,8 @@ def gamepad_all_2():
             RM = int(round(mag_right * 100))
 
         # ====== LT / RT (修改为 0-1000) ====== 
-        lt_raw = js.get_axis(4)
-        rt_raw = js.get_axis(5)
+        lt_raw = js.get_axis(axis_ids['LT'])
+        rt_raw = js.get_axis(axis_ids['RT'])
 
         # Pygame 中 Trigger 初始是 -1.0，按下是 1.0。这里归一化到 0.0 ~ 1.0
         lt_norm = (lt_raw + 1) / 2.0
