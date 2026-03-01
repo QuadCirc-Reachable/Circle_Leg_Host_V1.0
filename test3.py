@@ -177,7 +177,7 @@ def gamepad_all_2():
             'A': 0, 'B': 1, 'X': 3, 'Y': 4,
             'LB': 6, 'RB': 7, 
             'ML': 10, 'MR': 11,
-            'EXIT': 10 # Use ML/Select (10) as Back/Exit if no dedicated button
+            'EXIT': -1 # Disable gamepad exit for Linux or set to another ID if known. Typically Guide button.
         }
         map_config['axis_ids'] = {'LT': 5, 'RT': 4}
 
