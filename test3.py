@@ -22,7 +22,7 @@ print(f"Detected OS: {CURRENT_OS}")
 if CURRENT_OS == 'Windows':
     SERIAL_PORT = "COM10"
 elif CURRENT_OS == 'Linux':
-    SERIAL_PORT = "/dev/ttyUSB0" # Default for Linux, user might need to change
+    SERIAL_PORT = "/dev/ttyACM0" # Default for Linux, user might need to change
 else:
     SERIAL_PORT = "/dev/tty.usbmodem"
     
@@ -403,16 +403,31 @@ def gamepad_all_2():
                     print(f"正在尝试重连串口 {SERIAL_PORT} ...")
                     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
                     print(f"串口 {SERIAL_PORT} 重连成功！")
-                except serial.SerialException:
+                except serial.SerialException as e:
+                    print(f"重连失败: {e}")
                     # 静默失败，等待下次重试
                     pass
+
+        # 增加：处理接收缓冲区
+        if ser is not None:
+            try:
+                # 即使不解析 MCU 发回的数据，也要读取并在缓冲区积累过多前丢弃
+                # 防止 Linux 下 ttyACM 缓冲区满导致驱动异常
+                if ser.in_waiting > 0:
+                    ser.read(ser.in_waiting)
+            except (serial.SerialException, OSError):
+                # 读取出错通常意味着连接断开了，将在 write 时被捕获
+                pass
 
         if ser is not None and frame:
             try:
                 ser.write(frame)
-            except serial.SerialException as e:
-                print("⚠ 写串口失败，连接已断开", e)
-                ser.close()
+            except (serial.SerialException, OSError) as e:
+                print(f"⚠ 写串口失败，连接已断开: {e}")
+                try:
+                    ser.close()
+                except:
+                    pass
                 ser = None
 
         # ====== Visualization ======
