@@ -381,16 +381,12 @@ def gamepad_all_2():
         else:
             frame = b""
 
-        # 6. debug：打印逻辑值 + 真实发出去的 HEX
+        # 6. debug：打印逻辑值
         if OUTPUT_MODE == 1:
             print(
                 f"[LOGIC] LA={LA}, LM={LM}, RA={RA}, RM={RM}, "
                 f"LT={LT_val}, RT={RT_val}, BTN={button_status:08b}"
             )
-            if frame:
-                # 应该打印 20 个字节
-                print("[UART HEX]", " ".join(f"{b:02X}" for b in frame),
-                      f"(len={len(frame)})")
 
         # 7. 发送串口数据
         current_time = pygame.time.get_ticks()
@@ -401,18 +397,19 @@ def gamepad_all_2():
                 last_reconnect_time = current_time
                 try:
                     print(f"正在尝试重连串口 {SERIAL_PORT} ...")
-                    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
+                    # 添加 write_timeout=0.1 防止在此阻塞
+                    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
                     print(f"串口 {SERIAL_PORT} 重连成功！")
                 except serial.SerialException as e:
                     print(f"重连失败: {e}")
+                    if "Busy" in str(e) or "busy" in str(e):
+                        print("⚠ 端口被占用(Busy/Locked)。请关闭其他串口工具(如minicom)，或等待系统释放。")
                     # 静默失败，等待下次重试
                     pass
 
-        # 增加：处理接收缓冲区
+        # 增加：处理接收缓冲区 (Keep Alive)
         if ser is not None:
             try:
-                # 即使不解析 MCU 发回的数据，也要读取并在缓冲区积累过多前丢弃
-                # 防止 Linux 下 ttyACM 缓冲区满导致驱动异常
                 if ser.in_waiting > 0:
                     ser.read(ser.in_waiting)
             except (serial.SerialException, OSError):
@@ -422,6 +419,9 @@ def gamepad_all_2():
         if ser is not None and frame:
             try:
                 ser.write(frame)
+                # 发送成功才打印
+                if OUTPUT_MODE == 1:
+                    print("[TX]", " ".join(f"{b:02X}" for b in frame), f"(len={len(frame)})")
             except (serial.SerialException, OSError) as e:
                 print(f"⚠ 写串口失败，连接已断开: {e}")
                 try:
