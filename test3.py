@@ -187,6 +187,9 @@ def gamepad_all_2():
 
     deadzone = 0.15
     running = True
+    
+    # 增加：MCU 活动检测
+    last_rx_time = pygame.time.get_ticks()
 
     while running:
         pygame.event.pump()
@@ -400,6 +403,7 @@ def gamepad_all_2():
                     # 添加 write_timeout=0.1 防止在此阻塞
                     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
                     print(f"串口 {SERIAL_PORT} 重连成功！")
+                    last_rx_time = pygame.time.get_ticks() # 重连成功时更新时间
                 except serial.SerialException as e:
                     print(f"重连失败: {e}")
                     if "Busy" in str(e) or "busy" in str(e):
@@ -407,35 +411,57 @@ def gamepad_all_2():
                     # 静默失败，等待下次重试
                     pass
 
-        # 增加：处理接收缓冲区 (Keep Alive)
         if ser is not None:
             try:
-                if ser.in_waiting > 0:
-                    ser.read(ser.in_waiting)
+                waiting = ser.in_waiting
+                if waiting > 0:
+                    ser.read(waiting)
+                    last_rx_time = current_time # Update here
+                    is_mcu_alive = True
             except (serial.SerialException, OSError):
                 # 读取出错通常意味着连接断开了，将在 write 时被捕获
                 pass
+        
+        # 检查是否太久没收到数据 (> 1秒)
+        # 如果太久没收到，说明 MCU 可能重启中或者连接异常，暂停发送，防止 UART Overrun
+        time_since_last_rx = current_time - last_rx_time
+        mcu_timeout = False
+        
+        if time_since_last_rx > 1000:
+            mcu_timeout = True
 
         if ser is not None and frame:
-            try:
-                ser.write(frame)
-                # 发送成功才打印
-                if OUTPUT_MODE == 1:
-                    print("[TX]", " ".join(f"{b:02X}" for b in frame), f"(len={len(frame)})")
-            except (serial.SerialException, OSError) as e:
-                print(f"⚠ 写串口失败，连接已断开: {e}")
+            # 只有当 MCU 活跃时才发送指令
+            if not mcu_timeout:
                 try:
-                    ser.close()
-                except:
-                    pass
-                ser = None
+                    ser.write(frame)
+                    # 发送成功才打印
+                    if OUTPUT_MODE == 1:
+                        print("[TX]", " ".join(f"{b:02X}" for b in frame), f"(len={len(frame)})")
+                except (serial.SerialException, OSError) as e:
+                    print(f"⚠ 写串口失败，连接已断开: {e}")
+                    try:
+                        ser.close()
+                    except:
+                        pass
+                    ser = None
+            else:
+                if OUTPUT_MODE == 1 and (current_time % 1000 < 50): # 每秒打印一次
+                    print(f"⚠ 等待 MCU 启动/数据... ({time_since_last_rx}ms 无响应)")
 
         # ====== Visualization ======
         screen.fill((30, 30, 30)) # Dark Grey Background
 
         # 1. Connection Status
-        status_color = (0, 255, 0) if ser is not None else (255, 0, 0)
-        status_text = f"Serial: {SERIAL_PORT} [{'CONNECTED' if ser else 'DISCONNECTED'}]"
+        status_color = (0, 255, 0) if ser is not None and not mcu_timeout else \
+                       (255, 100, 0) if ser is not None and mcu_timeout else \
+                       (255, 0, 0)
+                       
+        status_msg = "CONNECTED" if ser is not None else "DISCONNECTED"
+        if mcu_timeout:
+            status_msg = "WAITING FOR MCU..."
+            
+        status_text = f"Serial: {SERIAL_PORT} [{status_msg}]"
         draw_text(screen, status_text, 20, 20, 24, status_color)
         draw_text(screen, f"Gamepad: {js.get_name()}", 20, 50, 20)
         draw_text(screen, f"Protocol: [HEAD] [CRC] [PAYLOAD] [CRC]", 20, HEIGHT - 30, 16, (150, 150, 150))
