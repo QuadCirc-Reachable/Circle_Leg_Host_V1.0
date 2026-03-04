@@ -1,9 +1,10 @@
 import pygame
 import math
 import sys
-import serial   
-import struct 
-import platform 
+import serial
+import struct
+import platform
+from serial.tools import list_ports
 
 """
 README:
@@ -19,12 +20,30 @@ README:
 CURRENT_OS = platform.system()  # 'Windows', 'Linux', 'Darwin' (macOS)
 print(f"Detected OS: {CURRENT_OS}")
 
-if CURRENT_OS == 'Windows':
-    SERIAL_PORT = "COM10"
-elif CURRENT_OS == 'Linux':
-    SERIAL_PORT = "/dev/ttyACM0" # Default for Linux, user might need to change
-else:
-    SERIAL_PORT = "/dev/tty.usbmodem"
+# Set to a specific port if you want to force it, otherwise leave None for auto-detect
+PREFERRED_SERIAL_PORT = None
+
+def select_serial_port(preferred_port=None):
+    ports = list(list_ports.comports())
+    if not ports:
+        return None
+
+    if preferred_port:
+        for port in ports:
+            if port.device == preferred_port:
+                return port.device
+
+    keywords = [
+        "USB", "UART", "CH340", "CP210", "FTDI", "ARDUINO",
+        "SILICON", "STM", "SERIAL"
+    ]
+
+    def score(port):
+        text = f"{port.description} {port.manufacturer} {port.hwid}".upper()
+        return sum(1 for kw in keywords if kw in text)
+
+    ports_sorted = sorted(ports, key=score, reverse=True)
+    return ports_sorted[0].device
     
 BAUD_RATE   = 2000000
 OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
@@ -72,15 +91,63 @@ def draw_text(surface, text, x, y, size=20, color=(255, 255, 255)):
     img = font.render(text, True, color)
     surface.blit(img, (x, y))
 
+def choose_serial_port_ui(screen):
+    selected = 0
+    clock = pygame.time.Clock()
+
+    while True:
+        ports = list(list_ports.comports())
+        options = ["AUTO"] + [p.device for p in ports]
+
+        screen.fill((20, 20, 20))
+        draw_text(screen, "Select Serial Port", 40, 30, 28)
+        draw_text(screen, "UP/DOWN to move, ENTER to select", 40, 60, 18)
+        draw_text(screen, "R to rescan, ESC to skip", 40, 82, 18)
+
+        if not ports:
+            draw_text(screen, "No serial ports found", 40, 130, 20, (255, 180, 0))
+        else:
+            for i, option in enumerate(options):
+                color = (0, 200, 255) if i == selected else (220, 220, 220)
+                prefix = "> " if i == selected else "  "
+                draw_text(screen, f"{prefix}{i}. {option}", 40, 130 + i * 24, 18, color)
+
+        pygame.display.flip()
+        clock.tick(30)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
+                if event.key == pygame.K_r:
+                    selected = 0
+                if event.key == pygame.K_UP:
+                    selected = max(0, selected - 1)
+                if event.key == pygame.K_DOWN:
+                    selected = min(len(options) - 1, selected + 1)
+                if event.key == pygame.K_RETURN:
+                    return None if selected == 0 else options[selected]
+                if pygame.K_0 <= event.key <= pygame.K_9:
+                    idx = event.key - pygame.K_0
+                    if 0 <= idx < len(options):
+                        return None if idx == 0 else options[idx]
+
 def gamepad_all_2():
     pygame.init()
     pygame.joystick.init()
     pygame.font.init()
 
+    SERIAL_PORT = None
+
     # --- Window Setup ---
     WIDTH, HEIGHT = 800, 500
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Robot Controller Host")
+
+    # --- 选择串口 ---
+    SERIAL_PORT = choose_serial_port_ui(screen)
 
     # --- 等待手柄连接 ---
     print("正在扫描手柄... (请连接手柄)")
@@ -117,10 +184,13 @@ def gamepad_all_2():
 
     # 尝试打开串口（打开失败就只做 print）
     try:
+        SERIAL_PORT = select_serial_port(PREFERRED_SERIAL_PORT)
+        if SERIAL_PORT is None:
+            raise serial.SerialException("未找到可用串口")
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
         print(f"串口 {SERIAL_PORT} 打开成功，将同步发送 UART 数据")
     except serial.SerialException as e:
-        print(f"⚠ 串口 {SERIAL_PORT} 打不开，只做 print", e)
+        print(f"⚠ 串口打开失败，只做 print: {e}")
         ser = None   # 标记为“没有串口”
 
     clock = pygame.time.Clock()
@@ -399,6 +469,9 @@ def gamepad_all_2():
             if current_time - last_reconnect_time > RECONNECT_INTERVAL:
                 last_reconnect_time = current_time
                 try:
+                    SERIAL_PORT = select_serial_port(PREFERRED_SERIAL_PORT)
+                    if SERIAL_PORT is None:
+                        raise serial.SerialException("未找到可用串口")
                     print(f"正在尝试重连串口 {SERIAL_PORT} ...")
                     # 添加 write_timeout=0.1 防止在此阻塞
                     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
@@ -461,7 +534,8 @@ def gamepad_all_2():
         if mcu_timeout:
             status_msg = "WAITING FOR MCU..."
             
-        status_text = f"Serial: {SERIAL_PORT} [{status_msg}]"
+        display_port = SERIAL_PORT if SERIAL_PORT is not None else "AUTO"
+        status_text = f"Serial: {display_port} [{status_msg}]"
         draw_text(screen, status_text, 20, 20, 24, status_color)
         draw_text(screen, f"Gamepad: {js.get_name()}", 20, 50, 20)
         draw_text(screen, f"Protocol: [HEAD] [CRC] [PAYLOAD] [CRC]", 20, HEIGHT - 30, 16, (150, 150, 150))
