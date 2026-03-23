@@ -184,7 +184,9 @@ def gamepad_all_2():
 
     # 尝试打开串口（打开失败就只做 print）
     try:
-        SERIAL_PORT = select_serial_port(PREFERRED_SERIAL_PORT)
+        # 如果用户在 UI 中选了 AUTO（返回 None），才用自动检测
+        if SERIAL_PORT is None:
+            SERIAL_PORT = select_serial_port(PREFERRED_SERIAL_PORT)
         if SERIAL_PORT is None:
             raise serial.SerialException("未找到可用串口")
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
@@ -469,12 +471,13 @@ def gamepad_all_2():
             if current_time - last_reconnect_time > RECONNECT_INTERVAL:
                 last_reconnect_time = current_time
                 try:
-                    SERIAL_PORT = select_serial_port(PREFERRED_SERIAL_PORT)
-                    if SERIAL_PORT is None:
+                    reconnect_port = SERIAL_PORT or select_serial_port(PREFERRED_SERIAL_PORT)
+                    if reconnect_port is None:
                         raise serial.SerialException("未找到可用串口")
-                    print(f"正在尝试重连串口 {SERIAL_PORT} ...")
+                    print(f"正在尝试重连串口 {reconnect_port} ...")
                     # 添加 write_timeout=0.1 防止在此阻塞
-                    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
+                    ser = serial.Serial(reconnect_port, BAUD_RATE, timeout=0.1, write_timeout=0.1)
+                    SERIAL_PORT = reconnect_port
                     print(f"串口 {SERIAL_PORT} 重连成功！")
                     last_rx_time = pygame.time.get_ticks() # 重连成功时更新时间
                 except serial.SerialException as e:
