@@ -20,8 +20,10 @@ README:
 CURRENT_OS = platform.system()  # 'Windows', 'Linux', 'Darwin' (macOS)
 print(f"Detected OS: {CURRENT_OS}")
 
-# Set to a specific port if you want to force it, otherwise leave None for auto-detect
-PREFERRED_SERIAL_PORT = None
+# 默认使用的串口：Windows 上一般是 COM4/COM5...，Linux/MiniPC 上是 /dev/ttyUSB0 或 /dev/ttyACM0。
+# 设为非 None 后，HEADLESS 启动会直接使用该端口，不弹菜单。
+# 若该端口不存在会回退到 AUTO 扫描。
+PREFERRED_SERIAL_PORT = "COM4"  # ← 部署时修改为实际端口名
 
 def select_serial_port(preferred_port=None):
     ports = list(list_ports.comports())
@@ -47,6 +49,7 @@ def select_serial_port(preferred_port=None):
     
 BAUD_RATE   = 2000000
 OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
+HEADLESS    = True      # True: 不显示 UI 窗口（后台运行，免受焦点影响）; False: 显示可视化窗口
 
 # ==============================================================================
 # CRC16 Implementation (移植自 CRC.cpp)
@@ -91,6 +94,24 @@ def draw_text(surface, text, x, y, size=20, color=(255, 255, 255)):
     img = font.render(text, True, color)
     surface.blit(img, (x, y))
 
+def close_serial(ser):
+    """安全关闭串口，吞掉所有异常。"""
+    if ser is None:
+        return
+    try:
+        ser.close()
+    except Exception:
+        pass
+
+def port_exists(port_name):
+    """检查指定串口是否仍然存在于系统中。"""
+    if not port_name:
+        return False
+    try:
+        return any(p.device == port_name for p in list_ports.comports())
+    except Exception:
+        return False
+
 def choose_serial_port_ui(screen):
     selected = 0
     clock = pygame.time.Clock()
@@ -134,6 +155,68 @@ def choose_serial_port_ui(screen):
                     if 0 <= idx < len(options):
                         return None if idx == 0 else options[idx]
 
+def choose_serial_port_console(timeout_s=5):
+    """命令行版串口选择菜单：列出端口，用户输入序号；超时则自动选择 (返回 None)。"""
+    import select
+    ports = list(list_ports.comports())
+    if not ports:
+        print("[PORT] 未发现串口，使用自动模式")
+        return None
+
+    print("\n========== 选择串口 ==========")
+    print("  0. AUTO (自动检测)")
+    for i, p in enumerate(ports, 1):
+        print(f"  {i}. {p.device}  ({p.description})")
+    print(f"==============================")
+    print(f"请在 {timeout_s}s 内输入序号回车 (默认 AUTO):", end=" ", flush=True)
+
+    # Windows 没有 select on stdin，用 msvcrt 实现带超时输入
+    try:
+        if platform.system() == "Windows":
+            import msvcrt
+            buf = ""
+            end = pygame.time.get_ticks() / 1000.0 + timeout_s if pygame.get_init() else None
+            import time as _t
+            start = _t.time()
+            while _t.time() - start < timeout_s:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwche()
+                    if ch in ("\r", "\n"):
+                        print()
+                        break
+                    if ch == "\b":  # backspace
+                        buf = buf[:-1]
+                    else:
+                        buf += ch
+                _t.sleep(0.05)
+            else:
+                print("\n[PORT] 输入超时，使用 AUTO")
+                return None
+            user_input = buf.strip()
+        else:
+            # POSIX: 用 select 等待 stdin
+            r, _, _ = select.select([sys.stdin], [], [], timeout_s)
+            if not r:
+                print("\n[PORT] 输入超时，使用 AUTO")
+                return None
+            user_input = sys.stdin.readline().strip()
+    except Exception as e:
+        print(f"\n[PORT] 输入处理失败 ({e})，使用 AUTO")
+        return None
+
+    if not user_input:
+        return None
+    try:
+        idx = int(user_input)
+    except ValueError:
+        print("[PORT] 输入无效，使用 AUTO")
+        return None
+
+    if idx == 0 or idx > len(ports):
+        return None
+    return ports[idx - 1].device
+
+
 def gamepad_all_2():
     pygame.init()
     pygame.joystick.init()
@@ -143,23 +226,39 @@ def gamepad_all_2():
 
     # --- Window Setup ---
     WIDTH, HEIGHT = 800, 500
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Robot Controller Host")
+    if HEADLESS:
+        screen = None
+        print("[HEADLESS] UI 已禁用，后台运行中")
+    else:
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Robot Controller Host")
 
     # --- 选择串口 ---
-    SERIAL_PORT = choose_serial_port_ui(screen)
+    if HEADLESS:
+        if PREFERRED_SERIAL_PORT and port_exists(PREFERRED_SERIAL_PORT):
+            # 部署模式：已配置默认端口且存在→ 直接使用，不弹菜单
+            SERIAL_PORT = PREFERRED_SERIAL_PORT
+            print(f"[HEADLESS] 使用预设串口: {SERIAL_PORT}")
+        else:
+            if PREFERRED_SERIAL_PORT:
+                print(f"[HEADLESS] 预设端口 {PREFERRED_SERIAL_PORT} 不存在，进入选择菜单")
+            # 否则走命令行选择菜单（超时则 AUTO）
+            SERIAL_PORT = choose_serial_port_console(timeout_s=5)
+    else:
+        SERIAL_PORT = choose_serial_port_ui(screen)
 
     # --- 等待手柄连接 ---
     print("正在扫描手柄... (请连接手柄)")
     while pygame.joystick.get_count() == 0:
         pygame.event.pump()
         pygame.time.wait(500)  # 每500ms检查一次
-        
-        # 绘制扫描界面
-        screen.fill((30, 30, 30))
-        draw_text(screen, "Scanning for Gamepad...", WIDTH//2 - 100, HEIGHT//2, 30)
-        draw_text(screen, "Please connect a controller", WIDTH//2 - 100, HEIGHT//2 + 40, 20)
-        pygame.display.flip()
+
+        if not HEADLESS:
+            # 绘制扫描界面
+            screen.fill((30, 30, 30))
+            draw_text(screen, "Scanning for Gamepad...", WIDTH//2 - 100, HEIGHT//2, 30)
+            draw_text(screen, "Please connect a controller", WIDTH//2 - 100, HEIGHT//2 + 40, 20)
+            pygame.display.flip()
 
         # 允许用户在等待时退出
         for event in pygame.event.get():
@@ -262,6 +361,10 @@ def gamepad_all_2():
     
     # 增加：MCU 活动检测
     last_rx_time = pygame.time.get_ticks()
+
+    # 连接状态跟踪（只在状态变化时打印，不刷屏）
+    # states: "connected" / "disconnected" / "waiting"
+    last_conn_state = None
 
     while running:
         pygame.event.pump()
@@ -456,34 +559,43 @@ def gamepad_all_2():
         else:
             frame = b""
 
-        # 6. debug：打印逻辑值
-        if OUTPUT_MODE == 1:
-            print(
-                f"[LOGIC] LA={LA}, LM={LM}, RA={RA}, RM={RM}, "
-                f"LT={LT_val}, RT={RT_val}, BTN={button_status:08b}"
-            )
-
-        # 7. 发送串口数据
+        # 6. 帧已准备完成（不再逐帧打印 LOGIC）
         current_time = pygame.time.get_ticks()
+
+        # 7. 发送串口数据 (current_time 已在上面取过)
 
         # 如果串口断开，尝试重连
         if ser is None:
             if current_time - last_reconnect_time > RECONNECT_INTERVAL:
                 last_reconnect_time = current_time
                 try:
+                    # 先校验：上次用过的端口是否仍存在；不存在则回退到自动扫描
+                    if SERIAL_PORT is not None and not port_exists(SERIAL_PORT):
+                        print(f"⚠ 端口 {SERIAL_PORT} 已不存在，重新扫描...")
+                        SERIAL_PORT = None
+
                     reconnect_port = SERIAL_PORT or select_serial_port(PREFERRED_SERIAL_PORT)
                     if reconnect_port is None:
                         raise serial.SerialException("未找到可用串口")
                     print(f"正在尝试重连串口 {reconnect_port} ...")
                     # 添加 write_timeout=0.1 防止在此阻塞
                     ser = serial.Serial(reconnect_port, BAUD_RATE, timeout=0.1, write_timeout=0.1)
+                    # 清掉脏数据，避免旧帧干扰同步
+                    try:
+                        ser.reset_input_buffer()
+                        ser.reset_output_buffer()
+                    except Exception:
+                        pass
                     SERIAL_PORT = reconnect_port
                     print(f"串口 {SERIAL_PORT} 重连成功！")
                     last_rx_time = pygame.time.get_ticks() # 重连成功时更新时间
                 except serial.SerialException as e:
                     print(f"重连失败: {e}")
-                    if "Busy" in str(e) or "busy" in str(e):
-                        print("⚠ 端口被占用(Busy/Locked)。请关闭其他串口工具(如minicom)，或等待系统释放。")
+                    err_str = str(e).lower()
+                    if "busy" in err_str or "permission" in err_str or "access" in err_str:
+                        print("⚠ 端口被占用/未释放(Busy/PermissionError)。可能是上次句柄未完全释放，稍后重试。")
+                        # 这种情况下让端口名作废，下次自动扫描
+                        SERIAL_PORT = None
                     # 静默失败，等待下次重试
                     pass
 
@@ -494,9 +606,11 @@ def gamepad_all_2():
                     ser.read(waiting)
                     last_rx_time = current_time # Update here
                     is_mcu_alive = True
-            except (serial.SerialException, OSError):
-                # 读取出错通常意味着连接断开了，将在 write 时被捕获
-                pass
+            except (serial.SerialException, OSError) as e:
+                # 读取出错通常意味着 USB 已被拔出或驱动出错——立即关闭并触发重连
+                print(f"⚠ 读串口失败，连接已断开: {e}")
+                close_serial(ser)
+                ser = None
         
         # 检查是否太久没收到数据 (> 1秒)
         # 如果太久没收到，说明 MCU 可能重启中或者连接异常，暂停发送，防止 UART Overrun
@@ -506,112 +620,129 @@ def gamepad_all_2():
         if time_since_last_rx > 1000:
             mcu_timeout = True
 
+        # 长时间“假连接”（USB 在但 MCU 一直没回数据）：主动断开触发重连
+        # 避免端口虚连导致永久挂死。阈值设为 8 秒。
+        if ser is not None and time_since_last_rx > 8000:
+            print("⚠ MCU 超过 8s 无响应，主动关闭串口并尝试重连...")
+            close_serial(ser)
+            ser = None
+            last_reconnect_time = 0  # 立刻允许重连
+
         if ser is not None and frame:
             # 只有当 MCU 活跃时才发送指令
             if not mcu_timeout:
                 try:
                     ser.write(frame)
-                    # 发送成功才打印
-                    if OUTPUT_MODE == 1:
-                        print("[TX]", " ".join(f"{b:02X}" for b in frame), f"(len={len(frame)})")
-                except (serial.SerialException, OSError) as e:
+                except (serial.SerialException, OSError, serial.SerialTimeoutException) as e:
                     print(f"⚠ 写串口失败，连接已断开: {e}")
-                    try:
-                        ser.close()
-                    except:
-                        pass
+                    close_serial(ser)
                     ser = None
-            else:
-                if OUTPUT_MODE == 1 and (current_time % 1000 < 50): # 每秒打印一次
-                    print(f"⚠ 等待 MCU 启动/数据... ({time_since_last_rx}ms 无响应)")
+
+        # 连接状态变化时打印（不刷屏）
+        if ser is None:
+            new_state = "disconnected"
+        elif mcu_timeout:
+            new_state = "waiting"
+        else:
+            new_state = "connected"
+
+        if new_state != last_conn_state:
+            if new_state == "connected":
+                print(f"✅ 串口已连接 ({SERIAL_PORT})")
+            elif new_state == "waiting":
+                print(f"⚠ MCU 无响应（等待中）")
+            elif new_state == "disconnected":
+                print("❌ 串口未连接")
+            last_conn_state = new_state
 
         # ====== Visualization ======
-        screen.fill((30, 30, 30)) # Dark Grey Background
+        if not HEADLESS:
+            screen.fill((30, 30, 30)) # Dark Grey Background
 
-        # 1. Connection Status
-        status_color = (0, 255, 0) if ser is not None and not mcu_timeout else \
-                       (255, 100, 0) if ser is not None and mcu_timeout else \
-                       (255, 0, 0)
-                       
-        status_msg = "CONNECTED" if ser is not None else "DISCONNECTED"
-        if mcu_timeout:
-            status_msg = "WAITING FOR MCU..."
-            
-        display_port = SERIAL_PORT if SERIAL_PORT is not None else "AUTO"
-        status_text = f"Serial: {display_port} [{status_msg}]"
-        draw_text(screen, status_text, 20, 20, 24, status_color)
-        draw_text(screen, f"Gamepad: {js.get_name()}", 20, 50, 20)
-        draw_text(screen, f"Protocol: [HEAD] [CRC] [PAYLOAD] [CRC]", 20, HEIGHT - 30, 16, (150, 150, 150))
+            # 1. Connection Status
+            status_color = (0, 255, 0) if ser is not None and not mcu_timeout else \
+                           (255, 100, 0) if ser is not None and mcu_timeout else \
+                           (255, 0, 0)
 
-        # 2. Joysticks
-        # Left Stick
-        pygame.draw.circle(screen, (50, 50, 50), (150, 250), 60, 2)
-        ls_x = 150 + int(x * 60)
-        ls_y = 250 + int(y * 60)
-        pygame.draw.circle(screen, (0, 150, 255), (ls_x, ls_y), 10)
-        draw_text(screen, f"L-Stick: {LA/10:.1f}deg, {LM/100:.2f}", 90, 330, 18)
+            status_msg = "CONNECTED" if ser is not None else "DISCONNECTED"
+            if mcu_timeout:
+                status_msg = "WAITING FOR MCU..."
 
-        # Right Stick
-        pygame.draw.circle(screen, (50, 50, 50), (650, 250), 60, 2)
-        rs_x = 650 + int(rx * 60)
-        rs_y = 250 + int(ry * 60)
-        pygame.draw.circle(screen, (0, 150, 255), (rs_x, rs_y), 10)
-        draw_text(screen, f"R-Stick: {RA/10:.1f}deg, {RM/100:.2f}", 590, 330, 18)
+            display_port = SERIAL_PORT if SERIAL_PORT is not None else "AUTO"
+            status_text = f"Serial: {display_port} [{status_msg}]"
+            draw_text(screen, status_text, 20, 20, 24, status_color)
+            draw_text(screen, f"Gamepad: {js.get_name()}", 20, 50, 20)
+            draw_text(screen, f"Protocol: [HEAD] [CRC] [PAYLOAD] [CRC]", 20, HEIGHT - 30, 16, (150, 150, 150))
 
-        # 3. Triggers (Bars)
-        # Left Trigger
-        pygame.draw.rect(screen, (50, 50, 50), (100, 100, 30, 100), 2)
-        pygame.draw.rect(screen, (255, 100, 0), (102, 200 - int(lt_norm * 96), 26, int(lt_norm * 96)))
-        draw_text(screen, f"LT: {int(LT_val)}", 90, 80, 18)
+            # 2. Joysticks
+            # Left Stick
+            pygame.draw.circle(screen, (50, 50, 50), (150, 250), 60, 2)
+            ls_x = 150 + int(x * 60)
+            ls_y = 250 + int(y * 60)
+            pygame.draw.circle(screen, (0, 150, 255), (ls_x, ls_y), 10)
+            draw_text(screen, f"L-Stick: {LA/10:.1f}deg, {LM/100:.2f}", 90, 330, 18)
 
-        # Right Trigger
-        pygame.draw.rect(screen, (50, 50, 50), (670, 100, 30, 100), 2)
-        pygame.draw.rect(screen, (255, 100, 0), (672, 200 - int(rt_norm * 96), 26, int(rt_norm * 96)))
-        draw_text(screen, f"RT: {int(RT_val)}", 660, 80, 18)
+            # Right Stick
+            pygame.draw.circle(screen, (50, 50, 50), (650, 250), 60, 2)
+            rs_x = 650 + int(rx * 60)
+            rs_y = 250 + int(ry * 60)
+            pygame.draw.circle(screen, (0, 150, 255), (rs_x, rs_y), 10)
+            draw_text(screen, f"R-Stick: {RA/10:.1f}deg, {RM/100:.2f}", 590, 330, 18)
 
-        # 4. Buttons
-        center_x = 400
-        center_y = 250
-        
-        # A, B, X, Y
-        btn_positions = {
-            'Y': (center_x + 100, center_y - 40),
-            'B': (center_x + 140, center_y),
-            'A': (center_x + 100, center_y + 40),
-            'X': (center_x + 60, center_y)
-        }
-        
-        # Check logic bits from button_status
-        # BTN_A: bit 3, BTN_B: bit 4, BTN_X: bit 2, BTN_Y: bit 5
-        # BTN_LB: bit 0, BTN_RB: bit 1
-        # BTN_ML: bit 6, BTN_MR: bit 7
-        
-        is_pressed = lambda bit: (button_status & (1 << bit)) != 0
-        
-        cols = {True: (0, 255, 0), False: (80, 80, 80)}
-        
-        # Draw ABXY
-        for name, pos in btn_positions.items():
-            bit = {'A': 3, 'B': 4, 'X': 2, 'Y': 5}[name]
-            pygame.draw.circle(screen, cols[is_pressed(bit)], pos, 15)
-            draw_text(screen, name, pos[0]-5, pos[1]-10, 18, (0,0,0) if is_pressed(bit) else (200,200,200))
+            # 3. Triggers (Bars)
+            # Left Trigger
+            pygame.draw.rect(screen, (50, 50, 50), (100, 100, 30, 100), 2)
+            pygame.draw.rect(screen, (255, 100, 0), (102, 200 - int(lt_norm * 96), 26, int(lt_norm * 96)))
+            draw_text(screen, f"LT: {int(LT_val)}", 90, 80, 18)
 
-        # Bumpers
-        pygame.draw.rect(screen, cols[is_pressed(0)], (100, 60, 60, 20)) # LB
-        draw_text(screen, "LB", 115, 60, 16, (0,0,0))
-        
-        pygame.draw.rect(screen, cols[is_pressed(1)], (640, 60, 60, 20)) # RB
-        draw_text(screen, "RB", 655, 60, 16, (0,0,0))
+            # Right Trigger
+            pygame.draw.rect(screen, (50, 50, 50), (670, 100, 30, 100), 2)
+            pygame.draw.rect(screen, (255, 100, 0), (672, 200 - int(rt_norm * 96), 26, int(rt_norm * 96)))
+            draw_text(screen, f"RT: {int(RT_val)}", 660, 80, 18)
 
-        # Menu Buttons (Start/Select)
-        pygame.draw.circle(screen, cols[is_pressed(6)], (center_x - 40, center_y), 10) # ML (Select)
-        draw_text(screen, "ML", center_x - 38, center_y + 15, 14, (200,200,200))
+            # 4. Buttons
+            center_x = 400
+            center_y = 250
 
-        pygame.draw.circle(screen, cols[is_pressed(7)], (center_x + 20, center_y), 10) # MR (Start)
-        draw_text(screen, "MR", center_x + 22, center_y + 15, 14, (200,200,200))
+            # A, B, X, Y
+            btn_positions = {
+                'Y': (center_x + 100, center_y - 40),
+                'B': (center_x + 140, center_y),
+                'A': (center_x + 100, center_y + 40),
+                'X': (center_x + 60, center_y)
+            }
 
-        pygame.display.flip()
-        
+            # Check logic bits from button_status
+            # BTN_A: bit 3, BTN_B: bit 4, BTN_X: bit 2, BTN_Y: bit 5
+            # BTN_LB: bit 0, BTN_RB: bit 1
+            # BTN_ML: bit 6, BTN_MR: bit 7
+
+            is_pressed = lambda bit: (button_status & (1 << bit)) != 0
+
+            cols = {True: (0, 255, 0), False: (80, 80, 80)}
+
+            # Draw ABXY
+            for name, pos in btn_positions.items():
+                bit = {'A': 3, 'B': 4, 'X': 2, 'Y': 5}[name]
+                pygame.draw.circle(screen, cols[is_pressed(bit)], pos, 15)
+                draw_text(screen, name, pos[0]-5, pos[1]-10, 18, (0,0,0) if is_pressed(bit) else (200,200,200))
+
+            # Bumpers
+            pygame.draw.rect(screen, cols[is_pressed(0)], (100, 60, 60, 20)) # LB
+            draw_text(screen, "LB", 115, 60, 16, (0,0,0))
+
+            pygame.draw.rect(screen, cols[is_pressed(1)], (640, 60, 60, 20)) # RB
+            draw_text(screen, "RB", 655, 60, 16, (0,0,0))
+
+            # Menu Buttons (Start/Select)
+            pygame.draw.circle(screen, cols[is_pressed(6)], (center_x - 40, center_y), 10) # ML (Select)
+            draw_text(screen, "ML", center_x - 38, center_y + 15, 14, (200,200,200))
+
+            pygame.draw.circle(screen, cols[is_pressed(7)], (center_x + 20, center_y), 10) # MR (Start)
+            draw_text(screen, "MR", center_x + 22, center_y + 15, 14, (200,200,200))
+
+            pygame.display.flip()
+
         clock.tick(30)
 
     # ====== 收尾 ====== 
