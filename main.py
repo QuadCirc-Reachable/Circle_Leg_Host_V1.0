@@ -592,7 +592,10 @@ def gamepad_all_2():
                 except serial.SerialException as e:
                     print(f"重连失败: {e}")
                     err_str = str(e).lower()
-                    if "busy" in err_str or "permission" in err_str or "access" in err_str:
+                    if "something went wrong" in err_str or "gen_failure" in err_str or "31" in err_str:
+                        print("⚠ 设备故障 (ERROR_GEN_FAILURE)：USB转串口可能已掉线。请尝试拔插USB或重启设备管理器中的端口。")
+                        SERIAL_PORT = None
+                    elif "busy" in err_str or "permission" in err_str or "access" in err_str:
                         print("⚠ 端口被占用/未释放(Busy/PermissionError)。可能是上次句柄未完全释放，稍后重试。")
                         # 这种情况下让端口名作废，下次自动扫描
                         SERIAL_PORT = None
