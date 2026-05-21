@@ -10,7 +10,7 @@ from serial.tools import list_ports
 README:
     - 这个脚本用 pygame 读取 Xbox 手柄数据，并把数据打包成特定格式通过 UART 发送出去
     - 协议格式已适配 RosComm.cpp 驱动：
-      [Header(3)] + [HeaderCRC(2)] + [Payload(13)] + [PayloadCRC(2)] = 20 Bytes
+      [Header(3)] + [HeaderCRC(2)] + [Payload(14)] + [PayloadCRC(2)] = 21 Bytes
     - 修正：Left Trigger (LT) 和 Right Trigger (RT) 的范围现在是 0-1000。
     - 记得先安装库：pip install pygame pyserial
     - 运行前请修改 SERIAL_PORT 为实际串口号
@@ -521,28 +521,39 @@ def gamepad_all_2():
         # Bit 7: MR (Menu Right)
         if js.get_button(BTN_MR_ID): button_status |= (1 << 7)
 
-        # 4. PC_Msg 结构体（13 字节，小端）
+        # 3. 生成 dpad_status（D-pad 方向键，每帧清零重算）
+        # Up=bit0, Down=bit1, Left=bit2, Right=bit3
+        dpad_status = 0
+        if js.get_numhats() > 0:
+            hat_x, hat_y = js.get_hat(0)
+            if hat_y > 0: dpad_status |= (1 << 0)  # Up   -> HIGH 速
+            if hat_y < 0: dpad_status |= (1 << 1)  # Down -> LOW 速
+            if hat_x < 0: dpad_status |= (1 << 2)  # Left -> MID_LOW 速
+            if hat_x > 0: dpad_status |= (1 << 3)  # Right-> MID_HIGH 速
+
+        # 4. PC_Msg 结构体（14 字节，小端）
         try:
             payload = struct.pack(
-                "<hHhHHHB",
+                "<hHhHHHBB",
                 LA,            # 左摇杆角度×10
                 left_r_1000,   # 左摇杆半径×1000
                 RA,            # 右摇杆角度×10
                 right_r_1000,  # 右摇杆半径×1000
                 LT_val,        # Left_trigger_x1000_msg (0-1000)
                 RT_val,        # Right_trigger_x1000_msg (0-1000)
-                button_status  # 按钮 bit
+                button_status, # 按钮 bit
+                dpad_status    # D-pad bit: Up=0,Down=1,Left=2,Right=3
             )
         except struct.error as e:
             print("⚠ struct.pack 出错，检查数值范围：", e)
             payload = b""
 
         # 5. 构造完整帧 (适配 RosComm.cpp)
-        # 结构: [Header(3)] + [HeaderCRC(2)] + [Payload(13)] + [PayloadCRC(2)]
+        # 结构: [Header(3)] + [HeaderCRC(2)] + [Payload(14)] + [PayloadCRC(2)]
         if payload:
             sof        = 0xAA
             protocolID = 0xFF  # 对应 PC_Comm.cpp 中的注册ID
-            dataLen    = len(payload) # 13
+            dataLen    = len(payload) # 14
             
             # 1. 构造 Header: 注意顺序是 sof, dataLen, protocolID (RosCommProtocol.hpp)
             header = struct.pack("<BBB", sof, dataLen, protocolID)
