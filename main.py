@@ -4,6 +4,7 @@ import sys
 import serial
 import struct
 import platform
+import traceback
 from serial.tools import list_ports
 
 """
@@ -23,7 +24,7 @@ print(f"Detected OS: {CURRENT_OS}")
 # 默认使用的串口：Windows 上一般是 COM4/COM5...，Linux/MiniPC 上是 /dev/ttyUSB0 或 /dev/ttyACM0。
 # 设为非 None 后，HEADLESS 启动会直接使用该端口，不弹菜单。
 # 若该端口不存在会回退到 AUTO 扫描。
-PREFERRED_SERIAL_PORT = "COM4"  # ← 部署时修改为实际端口名
+PREFERRED_SERIAL_PORT = "/dev/ttyACM0"  # ← 部署时修改为实际端口名
 
 def select_serial_port(preferred_port=None):
     ports = list(list_ports.comports())
@@ -49,7 +50,7 @@ def select_serial_port(preferred_port=None):
     
 BAUD_RATE   = 2000000
 OUTPUT_MODE = 1         # 1: 正常输出逻辑和HEX; 0: 调试模式，输出检测到的原始按钮ID
-HEADLESS    = True      # True: 不显示 UI 窗口（后台运行，免受焦点影响）; False: 显示可视化窗口
+HEADLESS    = True    # True: 不显示 UI 窗口（后台运行，免受焦点影响）; False: 显示可视化窗口
 
 # ==============================================================================
 # CRC16 Implementation (移植自 CRC.cpp)
@@ -112,6 +113,18 @@ def port_exists(port_name):
     except Exception:
         return False
 
+def safe_event_get():
+    """读取 pygame 事件队列；底层偶发异常时返回空列表避免主循环崩溃。"""
+    try:
+        return pygame.event.get()
+    except Exception as e:
+        print(f"[WARN] 读取 pygame 事件失败，已忽略本帧: {e}")
+        try:
+            pygame.event.pump()
+        except Exception:
+            pass
+        return []
+
 def choose_serial_port_ui(screen):
     selected = 0
     clock = pygame.time.Clock()
@@ -136,7 +149,7 @@ def choose_serial_port_ui(screen):
         pygame.display.flip()
         clock.tick(30)
 
-        for event in pygame.event.get():
+        for event in safe_event_get():
             if event.type == pygame.QUIT:
                 sys.exit()
             if event.type == pygame.KEYDOWN:
@@ -261,7 +274,7 @@ def gamepad_all_2():
             pygame.display.flip()
 
         # 允许用户在等待时退出
-        for event in pygame.event.get():
+        for event in safe_event_get():
             if event.type == pygame.QUIT:
                 sys.exit()
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -332,25 +345,27 @@ def gamepad_all_2():
             'ML': 6, 'MR': 7,
             'EXIT': 8 # Back button usually to exit? Original code used 8. Wait, standard xbox is 6 for back.
         }
-        map_config['axis_ids'] = {'LT': 4, 'RT': 5}
+        map_config['axis_ids'] = {'LT': 4, 'RT': 5, 'LX': 0, 'LY': 1, 'RX': 2, 'RY': 3}
     else:
-        # Linux Mapping (Custom checked)
-        # A: 0, B: 1, Y: 4, X: 3, RB: 7, LB: 6, ML: 10, MR: 11
+        # Linux Mapping (xpadneo / 标准 SDL 布局, 适用于 Xbox One/Series 手柄)
+        # Buttons: A=0 B=1 X=2 Y=3 LB=4 RB=5 View=6 Menu=7 Guide=8 LS=9 RS=10
+        # Axes:    LX=0 LY=1 LT=2 RX=3 RY=4 RT=5
         map_config['logic_map'] = {
             0: 0,   # A
             1: 1,   # B
-            3: 2,   # X (Linux X is 3)
-            4: 3,   # Y (Linux Y is 4)
-            10: 4,  # ML (Select)
-            11: 5,  # MR (Start)
+            2: 2,   # X
+            3: 3,   # Y
+            6: 4,   # View (ML)
+            7: 5,   # Menu (MR)
         }
         map_config['btn_ids'] = {
-            'A': 0, 'B': 1, 'X': 3, 'Y': 4,
-            'LB': 6, 'RB': 7, 
-            'ML': 10, 'MR': 11,
-            'EXIT': -1 # Disable gamepad exit for Linux or set to another ID if known. Typically Guide button.
+            'A': 0, 'B': 1, 'X': 2, 'Y': 3,
+            'LB': 4, 'RB': 5,
+            'ML': 6, 'MR': 7,
+            'EXIT': -1  # 不用手柄按键退出（按 ESC）
         }
-        map_config['axis_ids'] = {'LT': 5, 'RT': 4}
+        # 注意：xpadneo 下 LT/RT 是独立轴 2/5，左右摇杆 X/Y 是 0,1,3,4
+        map_config['axis_ids'] = {'LT': 2, 'RT': 5, 'LX': 0, 'LY': 1, 'RX': 3, 'RY': 4}
 
     button_map = map_config['logic_map']
     btn_ids = map_config['btn_ids']
@@ -370,7 +385,7 @@ def gamepad_all_2():
         pygame.event.pump()
 
         # ====== 处理事件：按钮 / 退出 / 手柄热插拔 ====== 
-        for event in pygame.event.get():
+        for event in safe_event_get():
             if event.type == pygame.QUIT:
                 running = False
                 sys.exit() # 直接退出
@@ -421,8 +436,8 @@ def gamepad_all_2():
             break
 
         # ====== 左摇杆 LA/LM ====== 
-        x = js.get_axis(0)
-        y = js.get_axis(1)
+        x = js.get_axis(axis_ids.get('LX', 0))
+        y = js.get_axis(axis_ids.get('LY', 1))
 
         if abs(x) < deadzone:
             x = 0.0
@@ -441,8 +456,8 @@ def gamepad_all_2():
             LM = int(round(mag_left * 100))
 
         # ====== 右摇杆 RA/RM ====== 
-        rx = js.get_axis(2)
-        ry = js.get_axis(3)
+        rx = js.get_axis(axis_ids.get('RX', 2))
+        ry = js.get_axis(axis_ids.get('RY', 3))
 
         if abs(rx) < deadzone:
             rx = 0.0
@@ -781,6 +796,7 @@ def main_menu():
             sys.exit()
         except Exception as e:
             print(f"发生错误: {e}")
+            print(traceback.format_exc())
             pass # 稍微等待避免过快循环
         
         # 简单等待
