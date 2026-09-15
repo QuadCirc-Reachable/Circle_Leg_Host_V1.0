@@ -17,6 +17,11 @@ Xbox gamepad, packs every stick, trigger, button and D-pad state into the firmwa
 streams it to the STM32 chassis controller over a 2 Mbit/s UART. It runs headless on the vehicle's
 Jetson Orin Nano. HKUST Final Year Design Project SL05a-25.
 
+> **Superseded by [Circle_Leg_Host_V2.0](https://github.com/QuadCirc-Reachable/Circle_Leg_Host_V2.0).**
+> V2.0 keeps this bridge's protocol byte-for-byte, restructures it into a tested package and adds
+> optional RealSense curb vision. This single-script version is kept for reference, and commit
+> `7adb072` is the one to use with the half-size V1 firmware.
+
 ---
 
 ## Overview
@@ -36,7 +41,8 @@ Jetson Orin Nano. HKUST Final Year Design Project SL05a-25.
 |------------|---------|
 | [Circle_Leg_V2.0](https://github.com/QuadCirc-Reachable/Circle_Leg_V2.0) | Full-size firmware (consumes this bridge's 14-byte `PC_Msg`) |
 | [Circle_Leg_V1.0](https://github.com/QuadCirc-Reachable/Circle_Leg_V1.0) | Half-size firmware (13-byte `PC_Msg`, see [compatibility](#firmware-compatibility--固件兼容性)) |
-| **Circle_Leg_Host_V1.0** (this repo) | Host-side gamepad → UART bridge |
+| [Circle_Leg_Host_V2.0](https://github.com/QuadCirc-Reachable/Circle_Leg_Host_V2.0) | Current host: gamepad link + optional curb vision |
+| **Circle_Leg_Host_V1.0** (this repo) | Previous single-script gamepad → UART bridge |
 
 ---
 
