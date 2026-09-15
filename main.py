@@ -1,3 +1,14 @@
+"""Circle_Leg_Host - gamepad-to-UART bridge for the REACHABLE (QuadCirc) wheelchair.
+
+Reads an Xbox controller with pygame, packs the 14-byte PC_Msg command (sticks,
+triggers, buttons, D-pad), wraps it in the firmware's RosComm frame
+(SOF 0xAA | len | ID 0xFF | CRC16 | payload | CRC16) and streams it to the STM32
+controller over UART at 2 Mbit/s, 30 frames per second. Handles serial-port
+auto-detection, reconnection, gamepad hot-plug and an MCU liveness watchdog.
+
+Usage:  pip install -r requirements.txt  &&  python main.py
+Configure PREFERRED_SERIAL_PORT, BAUD_RATE, OUTPUT_MODE and HEADLESS below.
+"""
 import pygame
 import math
 import sys
