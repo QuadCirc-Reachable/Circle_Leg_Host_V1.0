@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="#overview">English</a> | <a href="#项目概述">中文</a>
+  <b>English</b> | <a href="README_zh.md">中文</a>
 </p>
 
 Host-side operator link for the **REACHABLE (QuadCirc)** CircLeg wheel-leg wheelchair. It reads an
@@ -40,33 +40,13 @@ Jetson Orin Nano. HKUST Final Year Design Project SL05a-25.
 | Repository | Content |
 |------------|---------|
 | [Circle_Leg_V2.0](https://github.com/QuadCirc-Reachable/Circle_Leg_V2.0) | Full-size firmware (consumes this bridge's 14-byte `PC_Msg`) |
-| [Circle_Leg_V1.0](https://github.com/QuadCirc-Reachable/Circle_Leg_V1.0) | Half-size firmware (13-byte `PC_Msg`, see [compatibility](#firmware-compatibility--固件兼容性)) |
+| [Circle_Leg_V1.0](https://github.com/QuadCirc-Reachable/Circle_Leg_V1.0) | Half-size firmware (13-byte `PC_Msg`, see [compatibility](#firmware-compatibility)) |
 | [Circle_Leg_Host_V2.0](https://github.com/QuadCirc-Reachable/Circle_Leg_Host_V2.0) | Current host: gamepad link + optional curb vision |
 | **Circle_Leg_Host_V1.0** (this repo) | Previous single-script gamepad → UART bridge |
 
 ---
 
-## 项目概述
-
-<details>
-<summary>点击展开中文说明</summary>
-
-REACHABLE（QuadCirc）CircLeg 轮腿轮椅的上位机操控链路：用 pygame 读取 Xbox 手柄，把摇杆、扳机、按键和
-D-pad 状态打包成固件的 `PC_Msg`，通过 2 Mbit/s 串口发送给 STM32 底盘控制器。部署时以无界面（headless）
-模式运行在车载 Jetson Orin Nano 上。
-
-- **协议一致**：与固件解析的 RosComm 帧完全相同（帧头、长度、协议 ID、两级 CRC16），14 字节小端载荷，30 Hz 发送。
-- **链路稳健**：串口自动识别（可预设端口）、每 2 s 自动重连、处理 USB 转串口掉线；MCU 心跳看门狗：1 s 无回包
-  暂停发送，8 s 无回包强制重连。
-- **手柄稳健**：等待手柄连接、拔出后自动重新扫描、容忍 pygame 偶发事件异常。
-- **两种运行模式**：headless 部署模式，或显示摇杆 / 扳机 / 按键 / 连接状态的 pygame 可视化窗口。
-- **按系统映射**：Windows（XInput）与 Linux（xpadneo / SDL）两套按键和轴映射。
-
-</details>
-
----
-
-## Demo | 演示
+## Demo
 
 <p align="center">
   <a href="https://youtu.be/onJCvx1d8Sw">
@@ -75,12 +55,12 @@ D-pad 状态打包成固件的 `PC_Msg`，通过 2 Mbit/s 串口发送给 STM32 
 </p>
 
 <p align="center">
-  ▶ <a href="https://youtu.be/onJCvx1d8Sw">Watch the REACHABLE pitch video on YouTube</a> · <a href="https://youtu.be/onJCvx1d8Sw">在 YouTube 观看项目视频</a>
+  ▶ <a href="https://youtu.be/onJCvx1d8Sw">Watch the REACHABLE pitch video on YouTube</a>
 </p>
 
 ---
 
-## Architecture | 架构
+## Architecture
 
 ```
 ┌────────────────────┐ USB / BT ┌──────────────────────────── main.py ─────────────────────────────┐
@@ -95,7 +75,7 @@ D-pad 状态打包成固件的 `PC_Msg`，通过 2 Mbit/s 串口发送给 STM32 
 
 ---
 
-## Getting Started | 快速开始
+## Getting Started
 
 ```bash
 pip install -r requirements.txt      # pygame 2.6.1, pyserial 3.5
@@ -117,7 +97,7 @@ also exits; it is disabled on Linux.
 
 ---
 
-## Communication Protocol | 通信协议
+## Communication Protocol
 
 ```
 | SOF 0xAA | len = 14 | ID 0xFF | CRC16(header) | payload (14 B) | CRC16(frame) |   → 21 bytes
@@ -140,7 +120,7 @@ Payload (`struct.pack("<hHhHHHBB", ...)`, matches `Protocol::PC_Msg` in the firm
 
 Stick deadzone is 0.15. Triggers are normalised from pygame's −1…1 range to 0…1000.
 
-### Gamepad mapping | 手柄映射
+### Gamepad mapping
 
 | Logical | Windows button / axis | Linux (xpadneo) button / axis |
 |---------|----------------------|-------------------------------|
@@ -154,7 +134,7 @@ Stick deadzone is 0.15. Triggers are normalised from pygame's −1…1 range to 
 What each input does on the wheelchair (modes, ride-height presets, speed tiers, climbing trigger)
 is documented in the firmware READMEs.
 
-### Firmware compatibility | 固件兼容性
+### Firmware compatibility
 
 | Host version | Payload | Firmware |
 |--------------|---------|----------|
@@ -165,7 +145,7 @@ For the half-size prototype: `git checkout 7adb072`.
 
 ---
 
-## Repository Structure | 目录结构
+## Repository Structure
 
 ```
 Circle_Leg_Host_V1.0/
@@ -181,7 +161,7 @@ Circle_Leg_Host_V1.0/
 
 ---
 
-## Team | 团队
+## Team
 
 REACHABLE (QuadCirc), HKUST FYP SL05a-25: LIU Hualin (embedded control lead), FANG Ruoyun
 (perception & HMI), WU Ziyao (mechanical architecture & communication), XU Jusen (mechanical lead).
